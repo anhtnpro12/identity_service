@@ -4,6 +4,7 @@ import com.anhtrinhnam02.identity_service.dto.request.AuthenticationRequest;
 import com.anhtrinhnam02.identity_service.dto.request.IntrospectRequest;
 import com.anhtrinhnam02.identity_service.dto.response.AuthenticationResponse;
 import com.anhtrinhnam02.identity_service.dto.response.IntrospectResponse;
+import com.anhtrinhnam02.identity_service.entity.User;
 import com.anhtrinhnam02.identity_service.exception.AppException;
 import com.anhtrinhnam02.identity_service.exception.ErrorCode;
 import com.anhtrinhnam02.identity_service.repository.UserRepository;
@@ -21,11 +22,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
 import java.text.ParseException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.StringJoiner;
 
 @Slf4j
 @Service
@@ -33,6 +36,7 @@ import java.util.Date;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class AuthenticationService {
     UserRepository userRepository;
+    PasswordEncoder passwordEncoder;
 
     @NonFinal // Không sử dụng tiêm vào construction
     @Value("${jwt.signerKey}")
@@ -77,15 +81,13 @@ public class AuthenticationService {
         var user = userRepository.findByUsername(authenticationRequest.getUsername())
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
-        PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(10);
-
         boolean authenticated = passwordEncoder.matches(authenticationRequest.getPassword(), user.getPassword());
 
         if (!authenticated) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
 
-        var token = generateToken(authenticationRequest.getUsername());
+        var token = generateToken(user);
 
         return AuthenticationResponse.builder()
                 .token(token)
@@ -96,26 +98,26 @@ public class AuthenticationService {
     /**
      * Sinh token JWT cho một user cụ thể.
      * - Sử dụng thuật toán HS512 để ký token.
-     * - Thêm các thông tin cơ bản: subject (username), issuer, issue time, expiration time.
+     * - Thêm các thông tin cơ bản: subject (user), issuer, issue time, expiration time.
      * - Có thể bổ sung thêm custom claim.
      *
-     * @param username tên user cần sinh token
+     * @param user tên user cần sinh token
      * @return token JWT đã được ký và serialize thành chuỗi
      */
-    private String generateToken(String username) {
+    private String generateToken(User user) {
         // Tạo header cho JWT, chỉ định thuật toán ký là HS512
         JWSHeader header = new JWSHeader(JWSAlgorithm.HS512);
 
         // Xây dựng claims (payload) cho JWT
         JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
-                .subject(username) // Chủ thể của token (user)
+                .subject(user.getUsername()) // Chủ thể của token (user)
                 .issuer("anhtrinhnam02.com") // Đơn vị phát hành token
                 .issueTime(new Date()) // Thời gian phát hành
                 .expirationTime(new Date(
                         // Token hết hạn sau 1 giờ kể từ hiện tại
                         Instant.now().plus(1, ChronoUnit.HOURS).toEpochMilli()
                 ))
-                .claim("customClaim", "Custom") // Thêm custom claim nếu cần
+                .claim("scope", buildScope(user)) // Thêm custom claim nếu cần
                 .build();
 
         // Gói claims thành payload
@@ -135,5 +137,11 @@ public class AuthenticationService {
             log.error("Cannot create token", e);
             throw new RuntimeException(e);
         }
+    }
+
+    private String buildScope(User user) {
+        return (user.getRoles() == null || user.getRoles().isEmpty())
+                ? ""
+                : String.join(" ", user.getRoles());
     }
 }
