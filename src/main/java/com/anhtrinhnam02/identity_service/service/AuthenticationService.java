@@ -140,8 +140,9 @@ public class AuthenticationService {
     }
 
     private String buildScope(User user) {
-        return (user.getRoles() == null || user.getRoles().isEmpty())
-                ? ""
-                : String.join(" ", user.getRoles());
+//        return (user.getRoles() == null || user.getRoles().isEmpty())
+//                ? ""
+//                : String.join(" ", user.getRoles());
+        return "";
     }
 }
